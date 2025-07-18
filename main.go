@@ -1,6 +1,7 @@
 package main
 
 import (
+	"emote-counter/internal/database"
 	"emote-counter/internal/handlers"
 	"log"
 	"os"
@@ -34,6 +35,8 @@ func main() {
 
 	sess.AddHandler(handlers.CommandHandler)
 	handlers.EventHandler(sess)
+
+	database.Init()
 
 	log.Println("Logged as " + sess.State.User.Username + "#" + sess.State.User.Discriminator)
 
