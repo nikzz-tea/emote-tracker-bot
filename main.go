@@ -33,6 +33,7 @@ func main() {
 	defer sess.Close()
 
 	sess.AddHandler(handlers.CommandHandler)
+	handlers.EventHandler(sess)
 
 	log.Println("Logged as " + sess.State.User.Username + "#" + sess.State.User.Discriminator)
 
