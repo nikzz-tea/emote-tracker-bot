@@ -1,6 +1,7 @@
 package main
 
 import (
+	"emote-counter/internal/handlers"
 	"log"
 	"os"
 	"os/signal"
@@ -30,6 +31,8 @@ func main() {
 		log.Fatal(err)
 	}
 	defer sess.Close()
+
+	sess.AddHandler(handlers.CommandHandler)
 
 	log.Println("Logged as " + sess.State.User.Username + "#" + sess.State.User.Discriminator)
 
