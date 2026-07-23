@@ -3,53 +3,46 @@ package handlers
 import (
 	"emote-counter/internal/models"
 	"log"
-	"strings"
 
 	"github.com/bwmarrin/discordgo"
 )
 
-const prefix = "!"
+var commands = make(map[string]models.CommandObject)
 
-var commands = make(map[string]func(models.CommandProps))
-var aliases = make(map[string]string)
-
-func CommandHandler(s *discordgo.Session, m *discordgo.MessageCreate) {
-	if m.Author == nil {
-		return
-	}
-	if !strings.HasPrefix(m.Content, prefix) {
-		return
-	}
-	if m.Author.ID == s.State.User.ID {
+func CommandHandler(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	if i.Type != discordgo.InteractionApplicationCommand {
 		return
 	}
 
-	args := strings.Split(m.Content[len(prefix):], " ")
-	commandName := strings.ToLower(args[0])
-
-	if _, exists := aliases[commandName]; exists {
-		commandName = aliases[commandName]
-	}
-	callback, exists := commands[commandName]
+	data := i.ApplicationCommandData()
+	cmd, exists := commands[data.Name]
 	if !exists {
 		return
 	}
 
-	log.Printf("'%v' used '%v' command\n", m.Author.Username, commandName)
+	user := "unknown"
+	if i.Member != nil && i.Member.User != nil {
+		user = i.Member.User.Username
+	} else if i.User != nil {
+		user = i.User.Username
+	}
 
-	callback(models.CommandProps{
-		Args:    args[1:],
-		Sess:    s,
-		Message: m,
+	log.Printf("'%v' used '/%v' command\n", user, data.Name)
+
+	cmd.Callback(models.CommandProps{
+		Sess:        s,
+		Interaction: i,
 	})
 }
 
 func RegisterCommand(command models.CommandObject) {
-	commands[command.Name] = command.Callback
+	commands[command.Name] = command
+}
 
-	if command.Aliases != nil {
-		for _, alias := range command.Aliases {
-			aliases[alias] = command.Name
-		}
+func GetCommands() []models.CommandObject {
+	var result []models.CommandObject
+	for _, cmd := range commands {
+		result = append(result, cmd)
 	}
+	return result
 }

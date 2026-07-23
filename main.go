@@ -48,6 +48,7 @@ func main() {
 
 	guildIds := strings.Split(guilds, ",")
 
+	syncCommands(sess, guildIds)
 	syncGuildEmotes(sess, guildIds)
 
 	go func() {
@@ -63,6 +64,22 @@ func main() {
 	sc := make(chan os.Signal, 1)
 	signal.Notify(sc, syscall.SIGINT, syscall.SIGTERM, os.Interrupt)
 	<-sc
+}
+
+func syncCommands(sess *discordgo.Session, guildIds []string) {
+	for _, cmd := range handlers.GetCommands() {
+		appCmd := &discordgo.ApplicationCommand{
+			Name:        cmd.Name,
+			Description: cmd.Description,
+			Options:     cmd.Options,
+		}
+		for _, guildID := range guildIds {
+			_, err := sess.ApplicationCommandCreate(sess.State.User.ID, guildID, appCmd)
+			if err != nil {
+				log.Printf("Cannot create '/%v' command for guild %v: %v", cmd.Name, guildID, err)
+			}
+		}
+	}
 }
 
 func syncGuildEmotes(sess *discordgo.Session, guildIds []string) {
