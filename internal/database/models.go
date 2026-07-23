@@ -8,3 +8,11 @@ type EmoteCount struct {
 	Count     int64 `gorm:"default:0"`
 	Animated  bool
 }
+
+type BackfillCheckpoint struct {
+	ChannelID      string `gorm:"primaryKey"`
+	GuildID        string `gorm:"primaryKey"`
+	LastMessageID  string
+	TotalProcessed int64
+	TotalEmotes    int64
+}

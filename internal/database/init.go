@@ -17,5 +17,5 @@ func Init() {
 		log.Fatal(err)
 	}
 
-	DB.AutoMigrate(&EmoteCount{})
+	DB.AutoMigrate(&EmoteCount{}, &BackfillCheckpoint{})
 }

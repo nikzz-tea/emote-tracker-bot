@@ -98,12 +98,12 @@ func runBackfill(sess *discordgo.Session, i *discordgo.InteractionCreate, channe
 	guildID := i.GuildID
 	valid, err := utils.GetGuildEmoteIDs(database.DB, guildID)
 	if err != nil {
-		content := fmt.Sprintf("Error fetching guild emotes: %v", err)
-		sess.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-			Content: &content,
-		})
+		editResponse(sess, i, fmt.Sprintf("Error fetching guild emotes: %v", err))
 		return
 	}
+
+	var cp database.BackfillCheckpoint
+	resuming := database.DB.Where("channel_id = ? AND guild_id = ?", channelID, guildID).First(&cp).Error == nil
 
 	accumulator := make(map[string]*emoteAccumulator)
 	var lastID string
@@ -111,7 +111,51 @@ func runBackfill(sess *discordgo.Session, i *discordgo.InteractionCreate, channe
 	var totalEmotes int64
 	startTime := time.Now()
 
+	if resuming {
+		lastID = cp.LastMessageID
+		totalProcessed = cp.TotalProcessed
+		totalEmotes = cp.TotalEmotes
+	}
+
+	lastFlushTime := time.Now()
 	lastProgressTime := time.Now()
+
+	flush := func() {
+		if len(accumulator) == 0 {
+			return
+		}
+		err := database.DB.Transaction(func(tx *gorm.DB) error {
+			for emoteID, acc := range accumulator {
+				if err := tx.Clauses(clause.OnConflict{
+					Columns:   []clause.Column{{Name: "id"}, {Name: "guild_id"}, {Name: "channel_id"}},
+					DoUpdates: clause.Assignments(map[string]any{"count": gorm.Expr("count + ?", acc.Count)}),
+				}).Create(&database.EmoteCount{
+					ID:        emoteID,
+					GuildID:   guildID,
+					ChannelID: channelID,
+					Name:      acc.Name,
+					Animated:  acc.Animated,
+					Count:     acc.Count,
+				}).Error; err != nil {
+					return err
+				}
+			}
+			return tx.Clauses(clause.OnConflict{
+				Columns:   []clause.Column{{Name: "channel_id"}, {Name: "guild_id"}},
+				DoUpdates: clause.AssignmentColumns([]string{"last_message_id", "total_processed", "total_emotes"}),
+			}).Create(&database.BackfillCheckpoint{
+				ChannelID:      channelID,
+				GuildID:        guildID,
+				LastMessageID:  lastID,
+				TotalProcessed: totalProcessed,
+				TotalEmotes:    totalEmotes,
+			}).Error
+		})
+		if err != nil {
+			editResponse(sess, i, fmt.Sprintf("Error saving progress: %v", err))
+		}
+		accumulator = make(map[string]*emoteAccumulator)
+	}
 
 	for {
 		batchSize := 100
@@ -127,10 +171,8 @@ func runBackfill(sess *discordgo.Session, i *discordgo.InteractionCreate, channe
 
 		msgs, err := sess.ChannelMessages(channelID, batchSize, lastID, "", "")
 		if err != nil {
-			content := fmt.Sprintf("Error fetching messages: %v", err)
-			sess.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-				Content: &content,
-			})
+			flush()
+			editResponse(sess, i, fmt.Sprintf("Error fetching messages (progress saved): %v", err))
 			return
 		}
 
@@ -163,61 +205,29 @@ func runBackfill(sess *discordgo.Session, i *discordgo.InteractionCreate, channe
 		totalProcessed += int64(len(msgs))
 		lastID = msgs[len(msgs)-1].ID
 
+		if time.Since(lastFlushTime) > 30*time.Second {
+			flush()
+			lastFlushTime = time.Now()
+		}
+
 		if time.Since(lastProgressTime) > 3*time.Second {
 			elapsed := time.Since(startTime).Round(time.Second)
 			content := fmt.Sprintf("Scanning <#%s>... **%d** messages processed (%d emotes found) — %s elapsed",
 				channelID, totalProcessed, totalEmotes, elapsed)
-			sess.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-				Content: &content,
-			})
+			editResponse(sess, i, content)
 			lastProgressTime = time.Now()
 		}
 
 		time.Sleep(200 * time.Millisecond)
 	}
 
-	if len(accumulator) == 0 {
-		content := fmt.Sprintf("Scan of <#%s> complete: **0** emotes found in **%d** messages.", channelID, totalProcessed)
-		sess.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-			Content: &content,
-		})
-		return
-	}
-
-	err = database.DB.Transaction(func(tx *gorm.DB) error {
-		for emoteID, acc := range accumulator {
-			err := tx.Clauses(clause.OnConflict{
-				Columns:   []clause.Column{{Name: "id"}, {Name: "guild_id"}, {Name: "channel_id"}},
-				DoUpdates: clause.Assignments(map[string]any{"count": gorm.Expr("count + ?", acc.Count)}),
-			}).Create(&database.EmoteCount{
-				ID:        emoteID,
-				GuildID:   guildID,
-				ChannelID: channelID,
-				Name:      acc.Name,
-				Animated:  acc.Animated,
-				Count:     acc.Count,
-			}).Error
-			if err != nil {
-				return err
-			}
-		}
-		return nil
-	})
-
-	if err != nil {
-		content := fmt.Sprintf("Error saving results: %v", err)
-		sess.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-			Content: &content,
-		})
-		return
-	}
+	flush()
+	database.DB.Where("channel_id = ? AND guild_id = ?", channelID, guildID).Delete(&database.BackfillCheckpoint{})
 
 	elapsed := time.Since(startTime).Round(time.Second)
-	content := fmt.Sprintf("Scan of <#%s> complete: **%d** emotes found across **%d** messages (%d unique emotes) — %s elapsed",
-		channelID, totalEmotes, totalProcessed, len(accumulator), elapsed)
-	sess.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-		Content: &content,
-	})
+	content := fmt.Sprintf("Scan of <#%s> complete: **%d** emotes found across **%d** messages — %s elapsed",
+		channelID, totalEmotes, totalProcessed, elapsed)
+	editResponse(sess, i, content)
 }
 
 func respondError(sess *discordgo.Session, i *discordgo.InteractionCreate, msg string) {
@@ -227,5 +237,11 @@ func respondError(sess *discordgo.Session, i *discordgo.InteractionCreate, msg s
 			Content: msg,
 			Flags:   discordgo.MessageFlagsEphemeral,
 		},
+	})
+}
+
+func editResponse(sess *discordgo.Session, i *discordgo.InteractionCreate, content string) {
+	sess.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+		Content: &content,
 	})
 }
