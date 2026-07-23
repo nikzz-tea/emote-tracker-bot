@@ -17,16 +17,43 @@ func init() {
 	handlers.RegisterCommand(models.CommandObject{
 		Name:        "leaderboard",
 		Description: "Show the emote usage leaderboard",
+		Options: []*discordgo.ApplicationCommandOption{
+			{
+				Name:        "channel",
+				Description: "Show leaderboard for a specific channel (omit for guild-wide)",
+				Type:        discordgo.ApplicationCommandOptionChannel,
+				Required:    false,
+			},
+		},
 		Callback: func(props models.CommandProps) {
 			sess := props.Sess
 			i := props.Interaction
 
+			data := i.ApplicationCommandData()
+			channelID := ""
+			for _, opt := range data.Options {
+				if opt.Name == "channel" {
+					channelID = opt.ChannelValue(sess).ID
+				}
+			}
+
 			var emotes []database.EmoteCount
 
-			database.DB.
-				Where("guild_id = ? AND count > 0", i.GuildID).
-				Order("count desc").
-				Find(&emotes)
+			if channelID != "" {
+				database.DB.
+					Where("guild_id = ? AND channel_id = ? AND count > 0", i.GuildID, channelID).
+					Order("count desc").
+					Find(&emotes)
+			} else {
+				database.DB.
+					Model(&database.EmoteCount{}).
+					Select("id, guild_id, name, animated, SUM(count) as count").
+					Where("guild_id = ?", i.GuildID).
+					Group("id").
+					Having("count > 0").
+					Order("count desc").
+					Find(&emotes)
+			}
 
 			if len(emotes) == 0 {
 				sess.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
