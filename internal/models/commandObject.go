@@ -6,6 +6,7 @@ type CommandObject struct {
 	Name        string
 	Description string
 	Options     []*discordgo.ApplicationCommandOption
+	AdminOnly   bool
 	Callback    func(CommandProps)
 }
 

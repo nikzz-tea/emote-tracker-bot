@@ -73,6 +73,10 @@ func syncCommands(sess *discordgo.Session, guildIds []string) {
 			Description: cmd.Description,
 			Options:     cmd.Options,
 		}
+		if cmd.AdminOnly {
+			v := int64(discordgo.PermissionAdministrator)
+			appCmd.DefaultMemberPermissions = &v
+		}
 		for _, guildID := range guildIds {
 			_, err := sess.ApplicationCommandCreate(sess.State.User.ID, guildID, appCmd)
 			if err != nil {

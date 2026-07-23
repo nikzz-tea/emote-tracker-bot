@@ -29,6 +29,7 @@ func init() {
 	handlers.RegisterCommand(models.CommandObject{
 		Name:        "backfill",
 		Description: "Scan channel history to count past emote usage",
+		AdminOnly:   true,
 		Options: []*discordgo.ApplicationCommandOption{
 			{
 				Name:        "channel",
