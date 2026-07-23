@@ -1,0 +1,9 @@
+services:
+  emote-counter:
+    build: .
+    container_name: emote-counter
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - ./db.sqlite:/app/db.sqlite
