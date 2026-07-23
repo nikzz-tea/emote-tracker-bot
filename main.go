@@ -4,12 +4,15 @@ import (
 	"emote-counter/internal/database"
 	"emote-counter/internal/handlers"
 	"emote-counter/internal/utils"
-	"fmt"
 	"log"
 	"os"
 	"os/signal"
 	"strings"
 	"syscall"
+	"time"
+
+	_ "emote-counter/internal/commands"
+	_ "emote-counter/internal/events"
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/joho/godotenv"
@@ -44,10 +47,29 @@ func main() {
 	database.Init()
 
 	guildIds := strings.Split(guilds, ",")
+
+	syncGuildEmotes(sess, guildIds)
+
+	go func() {
+		ticker := time.NewTicker(6 * time.Hour)
+		defer ticker.Stop()
+		for range ticker.C {
+			syncGuildEmotes(sess, guildIds)
+		}
+	}()
+
+	log.Println("Logged as " + sess.State.User.Username + "#" + sess.State.User.Discriminator)
+
+	sc := make(chan os.Signal, 1)
+	signal.Notify(sc, syscall.SIGINT, syscall.SIGTERM, os.Interrupt)
+	<-sc
+}
+
+func syncGuildEmotes(sess *discordgo.Session, guildIds []string) {
 	for _, guild := range guildIds {
 		emotes, err := utils.GetGuildEmotes(sess, guild)
 		if err != nil {
-			fmt.Println(err)
+			log.Println("Error fetching emotes for guild", guild, ":", err)
 			continue
 		}
 
@@ -59,7 +81,6 @@ func main() {
 				Name:     emote.Name,
 				Animated: emote.Animated,
 			})
-			log.Println(emote.Animated)
 		}
 
 		var added []database.EmoteCount
@@ -68,13 +89,7 @@ func main() {
 				Create(&emoteCounts).Scan(&added)
 		}
 		if len(added) > 0 {
-			log.Printf("Updated emotes for guild '%v'", guild)
+			log.Printf("Added %d new emotes for guild '%v'", len(added), guild)
 		}
 	}
-
-	log.Println("Logged as " + sess.State.User.Username + "#" + sess.State.User.Discriminator)
-
-	sc := make(chan os.Signal, 1)
-	signal.Notify(sc, syscall.SIGINT, syscall.SIGTERM, os.Interrupt)
-	<-sc
 }
