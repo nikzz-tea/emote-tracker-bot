@@ -24,6 +24,12 @@ func init() {
 				Type:        discordgo.ApplicationCommandOptionChannel,
 				Required:    false,
 			},
+			{
+				Name:        "limit",
+				Description: "Number of entries to show (0 = all, default: 10)",
+				Type:        discordgo.ApplicationCommandOptionInteger,
+				Required:    false,
+			},
 		},
 		Callback: func(props models.CommandProps) {
 			sess := props.Sess
@@ -31,24 +37,38 @@ func init() {
 
 			data := i.ApplicationCommandData()
 			channelID := ""
+			limit := 10
 			for _, opt := range data.Options {
-				if opt.Name == "channel" {
+				switch opt.Name {
+				case "channel":
 					channelID = opt.ChannelValue(sess).ID
+				case "limit":
+					limit = int(opt.IntValue())
 				}
 			}
 
 			var emotes []database.EmoteCount
 
 			if channelID != "" {
-				database.DB.
+				q := database.DB.
 					Where("guild_id = ? AND channel_id = ? AND count > 0", i.GuildID, channelID).
-					Order("count desc").
-					Find(&emotes)
+					Order("count desc")
+				if limit > 0 {
+					q = q.Limit(limit)
+				}
+				q.Find(&emotes)
 			} else {
-				database.DB.Raw(
-					"SELECT id, guild_id, name, animated, SUM(count) AS count FROM emote_counts WHERE guild_id = ? AND channel_id != '' GROUP BY id HAVING SUM(count) > 0 ORDER BY count DESC",
-					i.GuildID,
-				).Scan(&emotes)
+				if limit > 0 {
+					database.DB.Raw(
+						"SELECT id, guild_id, name, animated, SUM(count) AS count FROM emote_counts WHERE guild_id = ? AND channel_id != '' GROUP BY id HAVING SUM(count) > 0 ORDER BY count DESC LIMIT ?",
+						i.GuildID, limit,
+					).Scan(&emotes)
+				} else {
+					database.DB.Raw(
+						"SELECT id, guild_id, name, animated, SUM(count) AS count FROM emote_counts WHERE guild_id = ? AND channel_id != '' GROUP BY id HAVING SUM(count) > 0 ORDER BY count DESC",
+						i.GuildID,
+					).Scan(&emotes)
+				}
 			}
 
 			if len(emotes) == 0 {
