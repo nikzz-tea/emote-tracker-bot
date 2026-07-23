@@ -45,14 +45,10 @@ func init() {
 					Order("count desc").
 					Find(&emotes)
 			} else {
-				database.DB.
-					Model(&database.EmoteCount{}).
-					Select("id, guild_id, name, animated, SUM(count) as count").
-					Where("guild_id = ?", i.GuildID).
-					Group("id").
-					Having("count > 0").
-					Order("count desc").
-					Find(&emotes)
+				database.DB.Raw(
+					"SELECT id, guild_id, name, animated, SUM(count) AS count FROM emote_counts WHERE guild_id = ? AND channel_id != '' GROUP BY id HAVING SUM(count) > 0 ORDER BY count DESC",
+					i.GuildID,
+				).Scan(&emotes)
 			}
 
 			if len(emotes) == 0 {

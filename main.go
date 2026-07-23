@@ -16,6 +16,7 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/joho/godotenv"
+	"gorm.io/gorm/clause"
 )
 
 func main() {
@@ -88,6 +89,26 @@ func syncGuildEmotes(sess *discordgo.Session, guildIds []string) {
 			log.Println("Error fetching emotes for guild", guild, ":", err)
 			continue
 		}
-		log.Printf("Guild '%v' has %d emotes available", guild, len(emotes))
+
+		var emoteCounts []database.EmoteCount
+		for _, emote := range emotes {
+			emoteCounts = append(emoteCounts, database.EmoteCount{
+				ID:        emote.ID,
+				GuildID:   guild,
+				ChannelID: "",
+				Name:      emote.Name,
+				Animated:  emote.Animated,
+				Count:     0,
+			})
+		}
+
+		var added []database.EmoteCount
+		if len(emotes) > 0 {
+			database.DB.Clauses(clause.OnConflict{DoNothing: true}, clause.Returning{}).
+				Create(&emoteCounts).Scan(&added)
+		}
+		if len(added) > 0 {
+			log.Printf("Added %d new emotes for guild '%v'", len(added), guild)
+		}
 	}
 }
