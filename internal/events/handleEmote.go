@@ -6,9 +6,10 @@ import (
 	"regexp"
 
 	"github.com/bwmarrin/discordgo"
+	"gorm.io/gorm/clause"
 )
 
-var emoteRegex = regexp.MustCompile(`<a?:\w+:(\d+)>`)
+var emoteRegex = regexp.MustCompile(`<(a?):(\w+):(\d+)>`)
 
 func init() {
 	handlers.RegisterEvent(func(s *discordgo.Session, m *discordgo.MessageCreate) {
@@ -22,12 +23,21 @@ func init() {
 		}
 
 		for _, match := range matches {
-			emoteID := match[1]
+			animated := match[1] == "a"
+			name := match[2]
+			emoteID := match[3]
 
-			database.DB.
-				Model(&database.EmoteCount{}).
-				Where("id = ? AND guild_id = ?", emoteID, m.GuildID).
-				Update("count", database.DB.Raw("count + 1"))
+			database.DB.Clauses(clause.OnConflict{
+				Columns:   []clause.Column{{Name: "id"}, {Name: "guild_id"}, {Name: "channel_id"}},
+				DoUpdates: clause.Assignments(map[string]any{"count": database.DB.Raw("count + 1")}),
+			}).Create(&database.EmoteCount{
+				ID:        emoteID,
+				GuildID:   m.GuildID,
+				ChannelID: m.ChannelID,
+				Name:      name,
+				Animated:  animated,
+				Count:     1,
+			})
 		}
 	})
 }
