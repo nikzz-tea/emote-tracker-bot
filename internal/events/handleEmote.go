@@ -11,7 +11,7 @@ import (
 
 func init() {
 	handlers.RegisterEvent(func(s *discordgo.Session, m *discordgo.MessageCreate) {
-		if m.Author == nil || m.Author.ID == s.State.User.ID {
+		if m.Author == nil || m.Author.Bot {
 			return
 		}
 

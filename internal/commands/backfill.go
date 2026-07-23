@@ -139,6 +139,9 @@ func runBackfill(sess *discordgo.Session, i *discordgo.InteractionCreate, channe
 		}
 
 		for _, msg := range msgs {
+			if msg.Author != nil && msg.Author.Bot {
+				continue
+			}
 			emotes := utils.ExtractEmotes(msg.Content)
 			for _, e := range emotes {
 				if !valid[e.ID] {
